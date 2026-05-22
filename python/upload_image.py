@@ -31,6 +31,9 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Minimum interval between two uploads in seconds",
     )
+    parser.add_argument("--yolo-confidence", type=float, default=None, help="YOLO confidence from 0.0 to 1.0")
+    parser.add_argument("--temperature", type=float, default=None, help="Temperature sensor value")
+    parser.add_argument("--smoke-density", type=float, default=None, help="Smoke density sensor value")
     return parser.parse_args()
 
 
@@ -39,7 +42,32 @@ def _to_path(image_path: str | Path) -> Path:
     return Path(image_path).expanduser()
 
 
-def _upload_one(client: httpx.Client, endpoint: str, image_path: Path) -> dict:
+def _build_optional_data(
+    *,
+    yolo_confidence: float | None = None,
+    temperature: float | None = None,
+    smoke_density: float | None = None,
+) -> dict[str, str]:
+    data: dict[str, str] = {}
+    if yolo_confidence is not None:
+        confidence = max(0.0, min(1.0, float(yolo_confidence)))
+        data["yolo_confidence"] = str(confidence)
+    if temperature is not None:
+        data["temperature"] = str(temperature)
+    if smoke_density is not None:
+        data["smoke_density"] = str(smoke_density)
+    return data
+
+
+def _upload_one(
+    client: httpx.Client,
+    endpoint: str,
+    image_path: Path,
+    *,
+    yolo_confidence: float | None = None,
+    temperature: float | None = None,
+    smoke_density: float | None = None,
+) -> dict:
     # 上传单张图片并返回 JSON 结果
     if not image_path.is_file():
         raise FileNotFoundError(f"Image not found: {image_path}")
@@ -49,7 +77,12 @@ def _upload_one(client: httpx.Client, endpoint: str, image_path: Path) -> dict:
 
     with image_path.open("rb") as file_obj:
         files = {"file": (image_path.name, file_obj, mime_type)}
-        response = client.post(endpoint, files=files)
+        data = _build_optional_data(
+            yolo_confidence=yolo_confidence,
+            temperature=temperature,
+            smoke_density=smoke_density,
+        )
+        response = client.post(endpoint, files=files, data=data or None)
 
     response.raise_for_status()
     return response.json()
@@ -58,10 +91,21 @@ def _upload_one(client: httpx.Client, endpoint: str, image_path: Path) -> dict:
 class FireUploadClient:
     # 上传客户端
     # 封装单图上传 批量上传 和最小间隔限流
-    def __init__(self, endpoint: str = DEFAULT_ENDPOINT, timeout: float = 30.0, min_interval: float = 1.0):
+    def __init__(
+        self,
+        endpoint: str = DEFAULT_ENDPOINT,
+        timeout: float = 30.0,
+        min_interval: float = 1.0,
+        yolo_confidence: float | None = None,
+        temperature: float | None = None,
+        smoke_density: float | None = None,
+    ):
         self.endpoint = endpoint
         self.timeout = timeout
         self.min_interval = max(0.0, min_interval)
+        self.yolo_confidence = yolo_confidence
+        self.temperature = temperature
+        self.smoke_density = smoke_density
         self._last_upload_started_at: float | None = None
 
     def _wait_for_rate_limit(self) -> None:
@@ -73,13 +117,29 @@ class FireUploadClient:
         if wait_seconds > 0:
             time.sleep(wait_seconds)
     
-    def upload_image(self, image_path: str | Path) -> dict:
+    def upload_image(
+        self,
+        image_path: str | Path,
+        *,
+        yolo_confidence: float | None = None,
+        temperature: float | None = None,
+        smoke_density: float | None = None,
+    ) -> dict:
         # 上传单张图片
         image_file = _to_path(image_path)
         with httpx.Client(timeout=self.timeout) as client:
             self._wait_for_rate_limit()
             self._last_upload_started_at = time.monotonic()
-            return _upload_one(client=client, endpoint=self.endpoint, image_path=image_file)
+            return _upload_one(
+                client=client,
+                endpoint=self.endpoint,
+                image_path=image_file,
+                yolo_confidence=(
+                    self.yolo_confidence if yolo_confidence is None else yolo_confidence
+                ),
+                temperature=self.temperature if temperature is None else temperature,
+                smoke_density=self.smoke_density if smoke_density is None else smoke_density,
+            )
     
     def upload_images(self, image_paths: Iterable[str | Path]) -> list[dict]:
         # 顺序批量上传图片
@@ -89,7 +149,14 @@ class FireUploadClient:
                 image_file = _to_path(image_path)
                 self._wait_for_rate_limit()
                 self._last_upload_started_at = time.monotonic()
-                result = _upload_one(client=client, endpoint=self.endpoint, image_path=image_file)
+                result = _upload_one(
+                    client=client,
+                    endpoint=self.endpoint,
+                    image_path=image_file,
+                    yolo_confidence=self.yolo_confidence,
+                    temperature=self.temperature,
+                    smoke_density=self.smoke_density,
+                )
                 results.append(result)
         return results
 
@@ -99,9 +166,19 @@ def upload_image(
     endpoint: str = DEFAULT_ENDPOINT,
     timeout: float = 30.0,
     min_interval: float = 1.0,
+    yolo_confidence: float | None = None,
+    temperature: float | None = None,
+    smoke_density: float | None = None,
 ) -> dict:
     # 函数式入口 上传单张图片
-    client = FireUploadClient(endpoint=endpoint, timeout=timeout, min_interval=min_interval)
+    client = FireUploadClient(
+        endpoint=endpoint,
+        timeout=timeout,
+        min_interval=min_interval,
+        yolo_confidence=yolo_confidence,
+        temperature=temperature,
+        smoke_density=smoke_density,
+    )
     return client.upload_image(image_path)
 
 
@@ -124,6 +201,9 @@ def main() -> None:
         endpoint=args.endpoint,
         timeout=args.timeout,
         min_interval=args.min_interval,
+        yolo_confidence=args.yolo_confidence,
+        temperature=args.temperature,
+        smoke_density=args.smoke_density,
     )
     results = client.upload_images(image_paths)
 

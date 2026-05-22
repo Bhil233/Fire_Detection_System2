@@ -91,16 +91,19 @@ def main():
         object_found = False
         frame_to_save = None
         current_target_boxes = []
+        current_target_confidences = []
 
         for result in results:
             classes_detected = result.boxes.cls.cpu().numpy()
             boxes_xyxy = result.boxes.xyxy.cpu().numpy()
+            confidences = result.boxes.conf.cpu().numpy()
 
             for idx, cls_id in enumerate(classes_detected):
                 class_name = result.names[int(cls_id)]
                 if class_name == TARGET_OBJECT:
                     object_found = True
                     current_target_boxes.append([float(v) for v in boxes_xyxy[idx]])
+                    current_target_confidences.append(float(confidences[idx]))
 
             if object_found:
                 # Save annotated image when target exists.
@@ -117,7 +120,11 @@ def main():
                 )
                 if interval_ok and not duplicated:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                    save_path = os.path.join(SAVE_DIR, f"{TARGET_OBJECT}_{timestamp}.jpg")
+                    max_confidence = f"{max(current_target_confidences):.3f}"
+                    save_path = os.path.join(
+                        SAVE_DIR,
+                        f"{TARGET_OBJECT}_conf_{max_confidence}_{timestamp}.jpg",
+                    )
                     cv2.imwrite(save_path, frame_to_save)
                     last_detect_saved_time = now
                     last_saved_target_boxes = current_target_boxes

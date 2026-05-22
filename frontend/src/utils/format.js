@@ -40,6 +40,28 @@ export function getMonitorStatusClass(status) {
   return "";
 }
 
+export function formatRatio(value) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  const numberValue = Number(value);
+  if (Number.isNaN(numberValue)) {
+    return "-";
+  }
+  return numberValue.toFixed(3);
+}
+
+export function formatSensorValue(value, digits = 2) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  const numberValue = Number(value);
+  if (Number.isNaN(numberValue)) {
+    return "-";
+  }
+  return numberValue.toFixed(digits);
+}
+
 export function resolveMonitorImageUrl(url, apiBase) {
   if (!url) {
     return "";

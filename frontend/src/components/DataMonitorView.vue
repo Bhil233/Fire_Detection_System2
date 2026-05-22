@@ -34,6 +34,14 @@ const props = defineProps({
     type: Function,
     required: true,
   },
+  formatRatio: {
+    type: Function,
+    required: true,
+  },
+  formatSensorValue: {
+    type: Function,
+    required: true,
+  },
   getMonitorStatusText: {
     type: Function,
     required: true,
@@ -51,6 +59,7 @@ const props = defineProps({
 const emit = defineEmits([
   "monitor-image-change",
   "monitor-remark-change",
+  "monitor-metadata-change",
   "save-monitor-record",
   "cancel-edit-monitor-record",
   "load-monitor-records",
@@ -123,7 +132,42 @@ const riskLevel = computed(() => (fireCount.value > 0 ? "需重点复核" : "整
           />
         </label>
 
-        <p class="hint form-tip">状态由系统自动识别（fire / normal）。</p>
+        <label class="form-item">
+          <span>YOLO置信度 (0.0-1.0)</span>
+          <input
+            type="number"
+            min="0"
+            max="1"
+            step="0.001"
+            :value="monitorForm.yolo_confidence"
+            placeholder="可选"
+            @input="emit('monitor-metadata-change', 'yolo_confidence', $event.target.value)"
+          />
+        </label>
+
+        <label class="form-item">
+          <span>温度</span>
+          <input
+            type="number"
+            step="0.01"
+            :value="monitorForm.temperature"
+            placeholder="可选"
+            @input="emit('monitor-metadata-change', 'temperature', $event.target.value)"
+          />
+        </label>
+
+        <label class="form-item">
+          <span>烟雾浓度</span>
+          <input
+            type="number"
+            step="0.01"
+            :value="monitorForm.smoke_density"
+            placeholder="可选"
+            @input="emit('monitor-metadata-change', 'smoke_density', $event.target.value)"
+          />
+        </label>
+
+        <p class="hint form-tip">状态和AI置信度由系统自动识别，附加数据为空时不会发送给AI。</p>
 
         <label class="form-item full">
           <span>备注</span>
@@ -170,6 +214,10 @@ const riskLevel = computed(() => (fireCount.value > 0 ? "需重点复核" : "整
           <select :value="monitorSortBy" @change="emit('monitor-sort-by-change', $event.target.value)">
             <option value="id">ID</option>
             <option value="status">状态</option>
+            <option value="fire_confidence">AI置信度</option>
+            <option value="yolo_confidence">YOLO置信度</option>
+            <option value="temperature">温度</option>
+            <option value="smoke_density">烟雾浓度</option>
             <option value="remark">备注</option>
             <option value="created_at">创建时间</option>
             <option value="updated_at">更新时间</option>
@@ -194,6 +242,10 @@ const riskLevel = computed(() => (fireCount.value > 0 ? "需重点复核" : "整
               <th>ID</th>
               <th>现场图片</th>
               <th>状态</th>
+              <th>AI置信度</th>
+              <th>YOLO置信度</th>
+              <th>温度</th>
+              <th>烟雾浓度</th>
               <th>备注</th>
               <th>创建时间</th>
               <th>更新时间</th>
@@ -212,6 +264,10 @@ const riskLevel = computed(() => (fireCount.value > 0 ? "需重点复核" : "整
                   {{ getMonitorStatusText(row.status) }}
                 </span>
               </td>
+              <td>{{ formatRatio(row.fire_confidence) }}</td>
+              <td>{{ formatRatio(row.yolo_confidence) }}</td>
+              <td>{{ formatSensorValue(row.temperature) }}</td>
+              <td>{{ formatSensorValue(row.smoke_density) }}</td>
               <td>{{ row.remark || "-" }}</td>
               <td>{{ formatDateTime(row.created_at) }}</td>
               <td>{{ formatDateTime(row.updated_at) }}</td>

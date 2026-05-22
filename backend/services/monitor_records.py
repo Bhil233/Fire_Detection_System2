@@ -34,6 +34,10 @@ def to_read_model(record: MonitorRecord) -> MonitorRecordRead:
         scene_image_path=record.scene_image_path,
         scene_image_url=build_image_url(record.scene_image_path),
         status=record.status,
+        fire_confidence=record.fire_confidence,
+        yolo_confidence=record.yolo_confidence,
+        temperature=record.temperature,
+        smoke_density=record.smoke_density,
         remark=record.remark,
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -85,24 +89,41 @@ def delete_stored_image(scene_image_path: str) -> None:
         target.unlink()
 
 
+def normalize_status(status: str) -> str:
+    normalized = status.strip().lower()
+    if normalized in {"fire", "发生火灾"}:
+        return "fire"
+    return "normal"
+
+
+def clamp_confidence(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return max(0.0, min(1.0, float(value)))
+
+
 async def create_monitor_record(
     db: AsyncSession,
     *,
     image_bytes: bytes,
     mime_type: str | None,
     status: str,
+    fire_confidence: float | None = None,
+    yolo_confidence: float | None = None,
+    temperature: float | None = None,
+    smoke_density: float | None = None,
     remark: str = "",
 ) -> MonitorRecordRead:
     await ensure_database_initialized()
 
-    normalized_status = status.strip().lower()
-    if normalized_status not in {"发生火灾", "无火灾"}:
-        normalized_status = "normal"
-
     scene_image_path = save_image_to_data_image(image_bytes=image_bytes, mime_type=mime_type)
     record = MonitorRecord(
         scene_image_path=scene_image_path,
-        status=normalized_status,
+        status=normalize_status(status),
+        fire_confidence=clamp_confidence(fire_confidence),
+        yolo_confidence=clamp_confidence(yolo_confidence),
+        temperature=temperature,
+        smoke_density=smoke_density,
         remark=remark.strip(),
     )
     db.add(record)

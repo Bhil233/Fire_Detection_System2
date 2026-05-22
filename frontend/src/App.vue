@@ -14,6 +14,8 @@ import {
 } from "./services/fireApi";
 import {
   formatDateTime,
+  formatRatio,
+  formatSensorValue,
   getMonitorStatusClass,
   getMonitorStatusText,
   resolveMonitorImageUrl,
@@ -26,6 +28,7 @@ const manualPreviewUrl = ref("");
 const manualLoading = ref(false);
 const manualResultText = ref("");
 const manualFireDetected = ref(false);
+const manualFireConfidence = ref(null);
 const manualErrorText = ref("");
 const manualCanUpload = computed(
   () => !!manualSelectedFile.value && !manualLoading.value
@@ -35,6 +38,7 @@ const {
   scriptPreviewUrl,
   scriptResultText,
   scriptFireDetected,
+  scriptFireConfidence,
   scriptErrorText,
   scriptSocketConnected,
   connectScriptSocket,
@@ -51,6 +55,9 @@ const monitorForm = ref({
   id: null,
   scene_image_file: null,
   scene_image_preview: "",
+  yolo_confidence: "",
+  temperature: "",
+  smoke_density: "",
   remark: "",
 });
 
@@ -97,6 +104,7 @@ function onManualFileChange(event) {
   manualResultText.value = "";
   manualErrorText.value = "";
   manualFireDetected.value = false;
+  manualFireConfidence.value = null;
 
   if (manualPreviewUrl.value) {
     URL.revokeObjectURL(manualPreviewUrl.value);
@@ -117,11 +125,13 @@ async function detectManualFire() {
   manualResultText.value = "";
   manualErrorText.value = "";
   manualFireDetected.value = false;
+  manualFireConfidence.value = null;
 
   try {
     const data = await detectManualFireRequest(apiBase, manualSelectedFile.value);
     manualResultText.value = data.result_text || "";
     manualFireDetected.value = !!data.fire_detected;
+    manualFireConfidence.value = data.fire_confidence ?? null;
 
     if (manualFireDetected.value) {
       window.alert("警告：检测到火灾，请立即处理并上报。");
@@ -141,6 +151,9 @@ function resetMonitorForm() {
     id: null,
     scene_image_file: null,
     scene_image_preview: "",
+    yolo_confidence: "",
+    temperature: "",
+    smoke_density: "",
     remark: "",
   };
 }
@@ -180,6 +193,10 @@ function onMonitorRemarkChange(value) {
   monitorForm.value.remark = value;
 }
 
+function onMonitorMetadataChange(key, value) {
+  monitorForm.value[key] = value;
+}
+
 function onMonitorSortByChange(value) {
   monitorSortBy.value = value;
   void loadMonitorRecords();
@@ -207,10 +224,19 @@ async function saveMonitorRecord() {
         apiBase,
         editingId,
         remark,
-        monitorForm.value.scene_image_file
+        monitorForm.value.scene_image_file,
+        {
+          yolo_confidence: monitorForm.value.yolo_confidence,
+          temperature: monitorForm.value.temperature,
+          smoke_density: monitorForm.value.smoke_density,
+        }
       );
     } else {
-      await createMonitorRecord(apiBase, remark, monitorForm.value.scene_image_file);
+      await createMonitorRecord(apiBase, remark, monitorForm.value.scene_image_file, {
+        yolo_confidence: monitorForm.value.yolo_confidence,
+        temperature: monitorForm.value.temperature,
+        smoke_density: monitorForm.value.smoke_density,
+      });
     }
 
     resetMonitorForm();
@@ -230,6 +256,9 @@ function startEditMonitorRecord(record) {
     id: record.id,
     scene_image_file: null,
     scene_image_preview: resolveMonitorImageUrl(record.scene_image_url, apiBase),
+    yolo_confidence: record.yolo_confidence ?? "",
+    temperature: record.temperature ?? "",
+    smoke_density: record.smoke_density ?? "",
     remark: record.remark ?? "",
   };
 }
@@ -332,9 +361,11 @@ onBeforeUnmount(() => {
       :manual-error-text="manualErrorText"
       :manual-result-text="manualResultText"
       :manual-fire-detected="manualFireDetected"
+      :manual-fire-confidence="manualFireConfidence"
       :script-preview-url="scriptPreviewUrl"
       :script-result-text="scriptResultText"
       :script-fire-detected="scriptFireDetected"
+      :script-fire-confidence="scriptFireConfidence"
       :script-error-text="scriptErrorText"
       :script-socket-connected="scriptSocketConnected"
       :monitor-rows="monitorRows"
@@ -352,11 +383,14 @@ onBeforeUnmount(() => {
       :monitor-sort-by="monitorSortBy"
       :monitor-sort-order="monitorSortOrder"
       :format-date-time="formatDateTime"
+      :format-ratio="formatRatio"
+      :format-sensor-value="formatSensorValue"
       :get-monitor-status-text="getMonitorStatusText"
       :get-monitor-status-class="getMonitorStatusClass"
       :resolve-monitor-image-url="resolveMonitorImageUrlWithBase"
       @monitor-image-change="onMonitorImageChange"
       @monitor-remark-change="onMonitorRemarkChange"
+      @monitor-metadata-change="onMonitorMetadataChange"
       @save-monitor-record="saveMonitorRecord"
       @cancel-edit-monitor-record="cancelEditMonitorRecord"
       @load-monitor-records="loadMonitorRecords"

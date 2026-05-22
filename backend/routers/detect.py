@@ -9,6 +9,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Request,
     UploadFile,
@@ -21,7 +22,7 @@ from database import get_db
 from models.schemas import DetectResponse
 from services.monitor_records import create_monitor_record
 from services.qwen_client import call_qwen
-from utils import parse_fire_result
+from utils import parse_fire_confidence, parse_fire_result
 
 
 router = APIRouter()
@@ -68,6 +69,7 @@ class _ScriptUploadSocketHub:
             "type": "script_upload_result",
             "image_data_url": f"data:{mime_type};base64,{encoded}",
             "fire_detected": result.fire_detected,
+            "fire_confidence": result.fire_confidence,
             "result_text": result.result_text,
             "monitor_record": result.monitor_record.model_dump(mode="json")
             if result.monitor_record is not None
@@ -121,11 +123,25 @@ async def _read_and_validate_image(file: UploadFile) -> tuple[bytes, str]:
     return image_bytes, file.content_type
 
 
-async def _run_detection(image_bytes: bytes, mime_type: str) -> tuple[bool, str]:
+async def _run_detection(
+    image_bytes: bytes,
+    mime_type: str,
+    *,
+    yolo_confidence: float | None = None,
+    temperature: float | None = None,
+    smoke_density: float | None = None,
+) -> tuple[bool, float, str]:
     # 调用大模型并将结果解析为布尔值
-    model_text = await call_qwen(image_bytes=image_bytes, mime_type=mime_type)
+    model_text = await call_qwen(
+        image_bytes=image_bytes,
+        mime_type=mime_type,
+        yolo_confidence=yolo_confidence,
+        temperature=temperature,
+        smoke_density=smoke_density,
+    )
+    fire_confidence = parse_fire_confidence(model_text)
     fire_detected = parse_fire_result(model_text)
-    return fire_detected, model_text
+    return fire_detected, fire_confidence, model_text
 
 
 async def _detect_and_create_record(
@@ -134,9 +150,18 @@ async def _detect_and_create_record(
     mime_type: str,
     source: str,
     db: AsyncSession,
+    yolo_confidence: float | None = None,
+    temperature: float | None = None,
+    smoke_density: float | None = None,
 ) -> DetectResponse:
     # 完成识别并创建监控记录
-    fire_detected, model_text = await _run_detection(image_bytes=image_bytes, mime_type=mime_type)
+    fire_detected, fire_confidence, model_text = await _run_detection(
+        image_bytes=image_bytes,
+        mime_type=mime_type,
+        yolo_confidence=yolo_confidence,
+        temperature=temperature,
+        smoke_density=smoke_density,
+    )
     status = "发生火灾" if fire_detected else "无火灾"
     remark = "自动上传" if source == "script_detect_fire" else "手动上传"
 
@@ -146,6 +171,10 @@ async def _detect_and_create_record(
             image_bytes=image_bytes,
             mime_type=mime_type,
             status=status,
+            fire_confidence=fire_confidence,
+            yolo_confidence=yolo_confidence,
+            temperature=temperature,
+            smoke_density=smoke_density,
             remark=remark,
         )
     except Exception as exc:
@@ -157,6 +186,7 @@ async def _detect_and_create_record(
     if fire_detected:
         return DetectResponse(
             fire_detected=True,
+            fire_confidence=fire_confidence,
             result_text="发现火灾，请立即处理",
             raw_model_output=model_text,
             monitor_record=monitor_record,
@@ -164,6 +194,7 @@ async def _detect_and_create_record(
 
     return DetectResponse(
         fire_detected=False,
+        fire_confidence=fire_confidence,
         result_text="未发现火灾",
         raw_model_output=model_text,
         monitor_record=monitor_record,
@@ -192,6 +223,9 @@ async def latest_script_upload_image_ws(websocket: WebSocket) -> None:
 @router.post("/api/manual/detect-fire", response_model=DetectResponse)
 async def manual_detect_fire(
     file: UploadFile = File(...),
+    yolo_confidence: float | None = Form(default=None, ge=0.0, le=1.0),
+    temperature: float | None = Form(default=None),
+    smoke_density: float | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> DetectResponse:
     # 手动检测接口
@@ -201,12 +235,18 @@ async def manual_detect_fire(
         mime_type=mime_type,
         source="manual_detect_fire",
         db=db,
+        yolo_confidence=yolo_confidence,
+        temperature=temperature,
+        smoke_density=smoke_density,
     )
 
 
 @router.post("/api/script/detect-fire", response_model=DetectResponse)
 async def script_detect_fire(
     file: UploadFile = File(...),
+    yolo_confidence: float | None = Form(default=None, ge=0.0, le=1.0),
+    temperature: float | None = Form(default=None),
+    smoke_density: float | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> DetectResponse:
     # 脚本上传检测接口
@@ -216,6 +256,9 @@ async def script_detect_fire(
         mime_type=mime_type,
         source="script_detect_fire",
         db=db,
+        yolo_confidence=yolo_confidence,
+        temperature=temperature,
+        smoke_density=smoke_density,
     )
 
     # 更新最新快照并广播给所有 WebSocket 客户端

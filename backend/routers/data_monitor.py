@@ -18,7 +18,7 @@ from services.monitor_records import (
     to_read_model,
 )
 from services.qwen_client import call_qwen
-from utils import parse_fire_result
+from utils import parse_fire_confidence, parse_fire_result
 
 
 router = APIRouter()
@@ -36,16 +36,37 @@ async def _read_and_validate_jpg(file: UploadFile) -> bytes:
     return image_bytes
 
 
-async def _auto_detect_status(image_bytes: bytes) -> str:
-    model_text = await call_qwen(image_bytes=image_bytes, mime_type="image/jpeg")
-    return "fire" if parse_fire_result(model_text) else "normal"
+async def _auto_detect_status(
+    image_bytes: bytes,
+    *,
+    yolo_confidence: float | None = None,
+    temperature: float | None = None,
+    smoke_density: float | None = None,
+) -> tuple[str, float]:
+    model_text = await call_qwen(
+        image_bytes=image_bytes,
+        mime_type="image/jpeg",
+        yolo_confidence=yolo_confidence,
+        temperature=temperature,
+        smoke_density=smoke_density,
+    )
+    return ("fire" if parse_fire_result(model_text) else "normal", parse_fire_confidence(model_text))
 
 
 @router.get("/api/data-monitor/records", response_model=list[MonitorRecordRead])
 async def list_monitor_records(
-    sort_by: Literal["id", "status", "remark", "created_at", "updated_at", "time"] = Query(
-        default="created_at"
-    ),
+    sort_by: Literal[
+        "id",
+        "status",
+        "fire_confidence",
+        "yolo_confidence",
+        "temperature",
+        "smoke_density",
+        "remark",
+        "created_at",
+        "updated_at",
+        "time",
+    ] = Query(default="created_at"),
     sort_order: Literal["asc", "desc"] = Query(default="desc"),
     db: AsyncSession = Depends(get_db),
 ) -> list[MonitorRecordRead]:
@@ -54,6 +75,10 @@ async def list_monitor_records(
         sort_column_map = {
             "id": MonitorRecord.id,
             "status": MonitorRecord.status,
+            "fire_confidence": MonitorRecord.fire_confidence,
+            "yolo_confidence": MonitorRecord.yolo_confidence,
+            "temperature": MonitorRecord.temperature,
+            "smoke_density": MonitorRecord.smoke_density,
             "remark": MonitorRecord.remark,
             "created_at": MonitorRecord.created_at,
             "updated_at": MonitorRecord.updated_at,
@@ -75,16 +100,28 @@ async def list_monitor_records(
 async def create_monitor_record_api(
     scene_image: UploadFile = File(...),
     remark: str = Form(""),
+    yolo_confidence: float | None = Form(default=None, ge=0.0, le=1.0),
+    temperature: float | None = Form(default=None),
+    smoke_density: float | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> MonitorRecordRead:
     try:
         image_bytes = await _read_and_validate_jpg(scene_image)
-        status = await _auto_detect_status(image_bytes)
+        status, fire_confidence = await _auto_detect_status(
+            image_bytes,
+            yolo_confidence=yolo_confidence,
+            temperature=temperature,
+            smoke_density=smoke_density,
+        )
         return await create_monitor_record(
             db=db,
             image_bytes=image_bytes,
             mime_type="image/jpeg",
             status=status,
+            fire_confidence=fire_confidence,
+            yolo_confidence=yolo_confidence,
+            temperature=temperature,
+            smoke_density=smoke_density,
             remark=remark,
         )
     except HTTPException:
@@ -101,6 +138,9 @@ async def update_monitor_record(
     record_id: int,
     remark: str | None = Form(default=None),
     scene_image: UploadFile | None = File(default=None),
+    yolo_confidence: float | None = Form(default=None, ge=0.0, le=1.0),
+    temperature: float | None = Form(default=None),
+    smoke_density: float | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> MonitorRecordRead:
     new_scene_image_path: str | None = None
@@ -114,6 +154,13 @@ async def update_monitor_record(
         if remark is not None:
             record.remark = remark.strip()
 
+        if yolo_confidence is not None:
+            record.yolo_confidence = yolo_confidence
+        if temperature is not None:
+            record.temperature = temperature
+        if smoke_density is not None:
+            record.smoke_density = smoke_density
+
         if scene_image is not None:
             image_bytes = await _read_and_validate_jpg(scene_image)
             old_scene_image_path = record.scene_image_path
@@ -122,7 +169,15 @@ async def update_monitor_record(
                 mime_type="image/jpeg",
             )
             record.scene_image_path = new_scene_image_path
-            record.status = await _auto_detect_status(image_bytes)
+            record.status, record.fire_confidence = await _auto_detect_status(
+                image_bytes,
+                yolo_confidence=yolo_confidence,
+                temperature=temperature,
+                smoke_density=smoke_density,
+            )
+            record.yolo_confidence = yolo_confidence
+            record.temperature = temperature
+            record.smoke_density = smoke_density
 
         record.updated_at = datetime.utcnow()
         await db.commit()

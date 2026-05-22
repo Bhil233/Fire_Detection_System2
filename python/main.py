@@ -1,4 +1,5 @@
 import argparse
+import re
 import time
 from pathlib import Path
 from threading import Lock
@@ -39,6 +40,8 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Minimum interval between two uploads in seconds",
     )
+    parser.add_argument("--temperature", type=float, default=None, help="Temperature sensor value")
+    parser.add_argument("--smoke-density", type=float, default=None, help="Smoke density sensor value")
     return parser.parse_args()
 
 
@@ -54,6 +57,13 @@ def get_latest_image_path(watch_dir: Path) -> Path | None:
         return None
 
     return max(image_files, key=lambda p: p.stat().st_mtime)
+
+
+def extract_yolo_confidence(file_path: Path) -> float | None:
+    match = re.search(r"(?:^|_)conf_(\d+(?:\.\d+)?)(?:_|$)", file_path.stem)
+    if match is None:
+        return None
+    return max(0.0, min(1.0, float(match.group(1))))
 
 
 class UploadOnImageEventHandler(FileSystemEventHandler):
@@ -100,7 +110,10 @@ class UploadOnImageEventHandler(FileSystemEventHandler):
                 return
 
         # 调用上传客户端发送到后端
-        payload = self.client.upload_image(file_path)
+        payload = self.client.upload_image(
+            file_path,
+            yolo_confidence=extract_yolo_confidence(file_path),
+        )
         print(f"Uploaded: {file_path}")
         print(payload)
 
@@ -136,6 +149,8 @@ def main() -> None:
         endpoint=args.endpoint,
         timeout=args.timeout,
         min_interval=args.min_upload_interval,
+        temperature=args.temperature,
+        smoke_density=args.smoke_density,
     )
 
     print(f"Watching: {watch_dir.resolve()}")

@@ -5,6 +5,7 @@ export function useScriptSocket() {
   const scriptPreviewUrl = ref("");
   const scriptResultText = ref("");
   const scriptFireDetected = ref(false);
+  const scriptFireConfidence = ref(null);
   const scriptErrorText = ref("");
   const scriptSocketConnected = ref(false);
 
@@ -50,6 +51,7 @@ export function useScriptSocket() {
           scriptPreviewUrl.value = payload.image_data_url;
         }
         scriptFireDetected.value = !!payload.fire_detected;
+        scriptFireConfidence.value = payload.fire_confidence ?? null;
         scriptResultText.value = payload.result_text || "";
         scriptErrorText.value = "";
       } catch {
@@ -85,6 +87,7 @@ export function useScriptSocket() {
     scriptPreviewUrl,
     scriptResultText,
     scriptFireDetected,
+    scriptFireConfidence,
     scriptErrorText,
     scriptSocketConnected,
     connectScriptSocket,

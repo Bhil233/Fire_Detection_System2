@@ -10,6 +10,13 @@ async function parseJsonResponse(response) {
   }
 }
 
+function appendOptionalNumber(formData, key, value) {
+  if (value === null || value === undefined || value === "") {
+    return;
+  }
+  formData.append(key, String(value));
+}
+
 export async function detectManualFireRequest(apiBase, file) {
   const formData = new FormData();
   formData.append("file", file);
@@ -18,7 +25,7 @@ export async function detectManualFireRequest(apiBase, file) {
     method: "POST",
     body: formData,
   });
-  const data = await response.json();
+  const data = await parseJsonResponse(response);
   if (!response.ok) {
     throw new Error(data.detail || "检测失败，请稍后重试。");
   }
@@ -38,12 +45,15 @@ export async function fetchMonitorRecords(apiBase, sortBy, sortOrder) {
   return Array.isArray(data) ? data : [];
 }
 
-export async function createMonitorRecord(apiBase, remark, sceneImageFile) {
+export async function createMonitorRecord(apiBase, remark, sceneImageFile, metadata = {}) {
   const formData = new FormData();
   formData.append("remark", remark);
   if (sceneImageFile) {
     formData.append("scene_image", sceneImageFile);
   }
+  appendOptionalNumber(formData, "yolo_confidence", metadata.yolo_confidence);
+  appendOptionalNumber(formData, "temperature", metadata.temperature);
+  appendOptionalNumber(formData, "smoke_density", metadata.smoke_density);
 
   const response = await fetch(`${apiBase}/api/data-monitor/records`, {
     method: "POST",
@@ -56,12 +66,15 @@ export async function createMonitorRecord(apiBase, remark, sceneImageFile) {
   return data;
 }
 
-export async function updateMonitorRecord(apiBase, recordId, remark, sceneImageFile) {
+export async function updateMonitorRecord(apiBase, recordId, remark, sceneImageFile, metadata = {}) {
   const formData = new FormData();
   formData.append("remark", remark);
   if (sceneImageFile) {
     formData.append("scene_image", sceneImageFile);
   }
+  appendOptionalNumber(formData, "yolo_confidence", metadata.yolo_confidence);
+  appendOptionalNumber(formData, "temperature", metadata.temperature);
+  appendOptionalNumber(formData, "smoke_density", metadata.smoke_density);
 
   const response = await fetch(`${apiBase}/api/data-monitor/records/${recordId}`, {
     method: "PUT",

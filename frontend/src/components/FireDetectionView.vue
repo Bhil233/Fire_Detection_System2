@@ -26,6 +26,10 @@ const props = defineProps({
     type: Boolean,
     required: true,
   },
+  manualFireConfidence: {
+    type: Number,
+    default: null,
+  },
   scriptPreviewUrl: {
     type: String,
     required: true,
@@ -37,6 +41,10 @@ const props = defineProps({
   scriptFireDetected: {
     type: Boolean,
     required: true,
+  },
+  scriptFireConfidence: {
+    type: Number,
+    default: null,
   },
   scriptErrorText: {
     type: String,
@@ -53,6 +61,17 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["manual-file-change", "detect-manual-fire"]);
+
+function formatConfidence(value) {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  const numberValue = Number(value);
+  if (Number.isNaN(numberValue)) {
+    return "-";
+  }
+  return numberValue.toFixed(3);
+}
 
 const chartSize = {
   width: 760,
@@ -345,6 +364,9 @@ const visibleXLabels = computed(() => {
           <p v-else-if="manualResultText" :class="manualFireDetected ? 'danger' : 'safe'">
             {{ manualResultText }}
           </p>
+          <p v-if="manualFireConfidence !== null" class="hint">
+            AI置信度: {{ formatConfidence(manualFireConfidence) }}
+          </p>
         </section>
 
         <section class="result-card">
@@ -359,6 +381,9 @@ const visibleXLabels = computed(() => {
           <p v-if="scriptErrorText" class="error">{{ scriptErrorText }}</p>
           <p v-else-if="scriptResultText" :class="scriptFireDetected ? 'danger' : 'safe'">
             {{ scriptResultText }}
+          </p>
+          <p v-if="scriptFireConfidence !== null" class="hint">
+            AI置信度: {{ formatConfidence(scriptFireConfidence) }}
           </p>
         </section>
       </div>

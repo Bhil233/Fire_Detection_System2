@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from urllib.parse import quote_plus
 
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -67,6 +68,23 @@ async def init_database() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def get_existing_columns(sync_conn) -> set[str]:
+            inspector = inspect(sync_conn)
+            return {column["name"] for column in inspector.get_columns("monitor_records")}
+
+        existing_columns = await conn.run_sync(get_existing_columns)
+        column_defs = {
+            "fire_confidence": "FLOAT NULL",
+            "yolo_confidence": "FLOAT NULL",
+            "temperature": "FLOAT NULL",
+            "smoke_density": "FLOAT NULL",
+        }
+        for column_name, column_def in column_defs.items():
+            if column_name not in existing_columns:
+                await conn.execute(
+                    text(f"ALTER TABLE monitor_records ADD COLUMN {column_name} {column_def}")
+                )
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
